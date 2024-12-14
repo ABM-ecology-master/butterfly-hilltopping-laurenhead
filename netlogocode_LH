@@ -1,0 +1,138 @@
+globals [visited-patches start-locations end-locations]
+; Global variables:
+; visited-patches: Number of unique patches visited by butterflies
+; start-locations and end-locations: Store initial and final coordinates of butterflies
+
+patches-own [elevation visited? used?]
+; Patch-specific variables:
+; elevation: Elevation value for each patch
+; visited?: Tracks if a patch has been visited at least once
+; used?: Tracks if a patch has been occupied by a butterfly
+
+turtles-own [start-x start-y end-x end-y start-patch]
+; Turtle-specific variables:
+; start-x, start-y: Starting coordinates of each butterfly
+; end-x, end-y: Final coordinates of each butterfly
+; start-patch: The patch where each butterfly starts
+
+to setup
+  ca ; Clear all agents and reset the world
+  
+  ; Initialize patches based on spatial data from the file
+  file-open "ElevationData.txt"
+  while [not file-at-end?]
+  [
+    let next-X file-read
+    let next-Y file-read
+    let next-elevation file-read
+    ask patch next-X next-Y [set elevation next-elevation]
+  ]
+  file-close
+  
+  ; Find the minimum and maximum elevation values across all patches
+  let min-elevation min [elevation] of patches
+  let max-elevation max [elevation] of patches
+  
+  ; Apply color scale to patches based on elevation and initialize patch variables
+  ask patches
+  [
+    set pcolor scale-color green elevation min-elevation max-elevation
+    set visited? false
+    set used? false
+  ]
+
+  ; Initialize global tracking variables
+  set visited-patches 0
+  set start-locations []
+  set end-locations []
+
+  ; Create 500 butterflies and initialize their starting positions
+  crt 500
+  [
+    set size 2
+    setxy random-pxcor random-pycor ; Position each butterfly randomly
+    set start-x xcor ; Store starting x coordinate
+    set start-y ycor ; Store starting y coordinate
+    set start-patch patch-here ; Store the patch where the butterfly starts
+    pen-down ; Enable path tracing for each butterfly
+  ]
+  
+  reset-ticks ; Reset the tick counter to zero
+end
+
+to go
+  ask turtles [move] ; Move all butterflies according to the movement rules
+
+  ; Calculate and plot the corridor width at each tick
+  let width corridor-width
+  set-current-plot "Corridor Width Over Time"
+  set-current-plot-pen "default"
+  plot width
+
+  ; Write results to a CSV file
+  if ticks = 0 [ ; Write headers to the CSV file at the first tick
+    file-open "corridor-width-data.csv"
+    file-print "tick, corridor_width" ; Write column headers
+    file-close
+  ]
+
+  file-open "corridor-width-data.csv"
+  file-print (word ticks ", " width) ; Append current tick and corridor width
+  file-close
+
+  tick ; Advance the simulation by one tick
+
+  ; Stop the simulation after 1000 ticks
+  if ticks >= 1000
+  [
+    record-end-locations ; Capture final coordinates of each butterfly
+    print (word "Final Corridor width: " width) ; Display the final corridor width
+
+    ; Export the plot to a CSV file, with a filename based on q's value
+    export-plot "Corridor Width Over Time" (word "Corridor-output-for-q-" q ".csv")
+
+    stop
+  ]
+end
+
+to move
+  ; Move each butterfly based on the value of q
+  ifelse random-float 1.0 < q
+    [uphill elevation] ; Move to the neighboring patch with the highest elevation
+    [move-to one-of neighbors] ; Otherwise, move to a random neighboring patch
+
+  ; Update patch status after the butterfly moves
+  ask patch-here
+  [
+    if not visited? ; Only increment if this is the first visit
+    [
+      set visited? true
+      set visited-patches visited-patches + 1
+    ]
+    set used? true ; Mark the patch as used
+  ]
+end
+
+to record-end-locations
+  ; Capture the final locations of all butterflies at the end of the simulation
+  ask turtles
+  [
+    set end-x xcor
+    set end-y ycor
+    set end-locations lput (list end-x end-y) end-locations
+  ]
+end
+
+; Reporter procedure to calculate the corridor width
+to-report corridor-width
+  let num-patches-used count patches with [used? = true]
+  ; Count the number of patches that were used by any butterfly
+
+  let mean-distance mean [distance start-patch] of turtles
+  ; Calculate the mean distance traveled by all butterflies
+
+  let width num-patches-used / mean-distance
+  ; Calculate the corridor width as the ratio of patches used to mean distance traveled
+
+  report width ; Return the calculated corridor width
+end
